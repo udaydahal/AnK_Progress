@@ -15,8 +15,3 @@ Re-running overwrites them and closes the old copy in SolidWorks first.
 - `bracket_model.py`  values + validation + geometry (no SolidWorks needed; `python bracket_model.py` prints the geometry)
 - `build_bracket.py`  draws the L-profile, extrudes it (centred on the Front plane), cuts the holes, saves
 
-## Notes
-- Hole counts: base 0/1/2/4, flange 0/1/2. Bad values raise a clear error before SolidWorks is touched.
-- Early-bound COM wrappers are generated once from `sldworks.tlb` (SolidWorks 2025, `SLDWORKS_TLB` in `build_bracket.py`).
-  Late-bound calls to `FeatureExtrusion3` silently return nothing.
-- Sketch quirk: SolidWorks only joins an arc and a line when the line comes first in the drawing chain, which is why the profile starts on the outside bend arc.

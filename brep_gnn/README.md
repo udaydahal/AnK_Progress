@@ -1,4 +1,4 @@
-# BRep to graph (step 1 of BRep + GNN)
+# BRep to graph 
 
 Goal of the bigger project: teach a GNN (graph neural network) to recognise features
 (holes, fillets, ...) of a CAD part from its BRep shape alone, without SolidWorks.
@@ -31,6 +31,4 @@ Change the numbers in `PARAMS` at the top of `bracket_cq.py` (or call `build_bra
 ## What the default bracket gives
 14 faces: 8 planes + 6 cylinders (2 bend + 4 holes), 32 links (28 convex, 4 smooth). Adding 2 base holes adds exactly 2 cylinder nodes. With a sharp corner (`FILLET_RADIUS=0`) the inside corner shows up as the only concave link.
 
-## Next steps
-2. Train a simple GNN on a public labelled BRep dataset (face-level labels).
-3. Generate many labelled brackets with this builder and train on those.
+

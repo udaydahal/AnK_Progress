@@ -19,6 +19,8 @@ import sys
 import time
 from collections import Counter
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # shared code: brep_gnn/
+
 from bracket_cq import (DATA_DIR, PARAMS, base_hole_centres, build_bracket, export_step,
                         flange_hole_centres)
 from brep_to_graph import step_to_graph

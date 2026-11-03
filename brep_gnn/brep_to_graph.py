@@ -32,7 +32,8 @@ from OCP.TopExp import TopExp, TopExp_Explorer
 from OCP.TopoDS import TopoDS  
 from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape, TopTools_IndexedMapOfShape  
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# where the demo bracket (bracket_cq.py) is written and read by default
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "own_dataset", "data")
 
 SURFACE_NAMES = {
     GeomAbs_Plane: "plane",
@@ -45,12 +46,18 @@ SURFACE_NAMES = {
 SMOOTH_ANGLE_DEG = 1.0  # faces meeting at less than this angle count as "smooth"
 
 
-def read_step(path):
+def read_step(path, with_reader=False):
     reader = STEPControl_Reader()
     if reader.ReadFile(path) != IFSelect_RetDone:
         raise SystemExit(f"Could not read STEP file: {path}")
     reader.TransferRoots()
-    return reader.OneShape()
+    return (reader, reader.OneShape()) if with_reader else reader.OneShape()
+
+
+def step_face_name(reader, face):
+    """The name stored on the face in the STEP file (MFCAD++ keeps the class label there)."""
+    entity = reader.WS().TransferReader().EntityFromShapeResult(face, 1)
+    return entity.Name().ToCString() if entity is not None else None
 
 
 def _vec(v):
@@ -125,9 +132,10 @@ def edge_convexity(edge, face1, face2):
     return ("convex" if _dot(_cross(n1, n2), _vec(t)) > 0 else "concave"), angle
 
 
-def step_to_graph(path):
-    """Build the face adjacency graph (a networkx.Graph) of the part in `path`."""
-    shape = read_step(path)
+def step_to_graph(path, names=False):
+    """Build the face adjacency graph (a networkx.Graph) of the part in `path`.
+    With names=True every node also gets 'name', the face name stored in the STEP file."""
+    reader, shape = read_step(path, with_reader=True)
 
     faces = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(shape, TopAbs_FACE, faces)
@@ -137,7 +145,7 @@ def step_to_graph(path):
     face_list = [TopoDS.Face_s(faces.FindKey(i)) for i in range(1, faces.Extent() + 1)]
     G = nx.Graph()
     for i, face in enumerate(face_list):
-        G.add_node(i, **face_info(face))
+        G.add_node(i, **face_info(face), **({"name": step_face_name(reader, face)} if names else {}))
 
     for k in range(1, edge_faces.Extent() + 1):
         edge = TopoDS.Edge_s(edge_faces.FindKey(k))

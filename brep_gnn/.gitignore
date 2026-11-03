@@ -1,3 +1,6 @@
 .venv/
 data/
 __pycache__/
+
+# MFCAD++ work: not uploaded yet
+mfcad/

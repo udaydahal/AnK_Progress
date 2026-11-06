@@ -121,9 +121,9 @@ def main(epochs=30, n_train=6000, n_val=1000, n_test=1500):
     n_in, n_edge = train_set[0].x.shape[1], train_set[0].edge_attr.shape[1]
 
     print("\ntraining the baseline (each face alone)")
-    mlp = train(FaceMLP(n_in, k, HIDDEN), loaders[0], loaders[1], epochs, device, "baseline", k, print_every=5)
+    mlp, _ = train(FaceMLP(n_in, k, HIDDEN), loaders[0], loaders[1], epochs, device, "baseline", k, print_every=5)
     print("\ntraining the GNN")
-    gnn = train(FaceGNN(n_in, n_edge, k, HIDDEN, LAYERS), loaders[0], loaders[1], epochs, device, "gnn", k, print_every=5)
+    gnn, _ = train(FaceGNN(n_in, n_edge, k, HIDDEN, LAYERS), loaders[0], loaders[1], epochs, device, "gnn", k, print_every=5)
 
     report("Baseline (no neighbours)", evaluate(mlp, loaders[2], device, k), LABELS)
     report("GNN (uses neighbours and links)", evaluate(gnn, loaders[2], device, k), LABELS)

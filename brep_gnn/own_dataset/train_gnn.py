@@ -74,9 +74,9 @@ def main(epochs=150):
 
     k = len(LABELS)
     print("\ntraining the baseline (node features only)")
-    mlp = train(FaceMLP(n_in, k), loaders[0], loaders[1], epochs, device, "baseline", k, weights)
+    mlp, _ = train(FaceMLP(n_in, k), loaders[0], loaders[1], epochs, device, "baseline", k, weights)
     print("\ntraining the GNN")
-    gnn = train(FaceGNN(n_in, n_edge, k), loaders[0], loaders[1], epochs, device, "gnn", k, weights)
+    gnn, _ = train(FaceGNN(n_in, n_edge, k), loaders[0], loaders[1], epochs, device, "gnn", k, weights)
 
     report("Baseline (no neighbours)", evaluate(mlp, loaders[2], device, k), LABELS)
     report("GNN (uses neighbours and links)", evaluate(gnn, loaders[2], device, k), LABELS)

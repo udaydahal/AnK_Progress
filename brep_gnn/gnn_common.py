@@ -67,6 +67,7 @@ def train(model, train_loader, val_loader, epochs, device, name, n_classes, weig
     model.to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     best_acc, best_state = -1.0, None
+    history = {"train_loss": [], "val_acc": []}
     for epoch in range(1, epochs + 1):
         model.train()
         total = 0.0
@@ -77,13 +78,16 @@ def train(model, train_loader, val_loader, epochs, device, name, n_classes, weig
             loss.backward()
             opt.step()
             total += loss.item() * batch.num_graphs
+        epoch_loss = total / len(train_loader.dataset)
         val_acc = accuracy(evaluate(model, val_loader, device, n_classes))
+        history["train_loss"].append(epoch_loss)
+        history["val_acc"].append(val_acc)
         if val_acc > best_acc:
             best_acc, best_state = val_acc, {k: v.clone() for k, v in model.state_dict().items()}
         if epoch % print_every == 0 or epoch == 1:
-            print(f"  [{name}] epoch {epoch:>3}  loss {total / len(train_loader.dataset):.4f}  val acc {val_acc:.3f}")
+            print(f"  [{name}] epoch {epoch:>3}  loss {epoch_loss:.4f}  val acc {val_acc:.3f}")
     model.load_state_dict(best_state)
-    return model
+    return model, history
 
 
 def report(name, cm, labels):

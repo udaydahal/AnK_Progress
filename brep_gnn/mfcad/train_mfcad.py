@@ -76,12 +76,18 @@ def step_to_data(path):
         return None
 
 
-def load_split(split, count):
-    """Graphs of `count` random parts of a split (0 = all), built once and cached."""
+def split_files(split, count):
+    """Folder and file names of `count` random parts of a split (0 = all); same pick every time."""
     folder = os.path.join(ROOT, "step", split)
     files = sorted(os.listdir(folder))
     if count:
         files = random.Random(SEED).sample(files, min(count, len(files)))
+    return folder, files
+
+
+def load_split(split, count):
+    """Graphs of `count` random parts of a split (0 = all), built once and cached."""
+    folder, files = split_files(split, count)
     cache_file = os.path.join(CACHE, f"{split}_{len(files)}.pt")
     if os.path.exists(cache_file):
         return torch.load(cache_file, weights_only=False)
@@ -114,16 +120,17 @@ def main(epochs=30, n_train=6000, n_val=1000, n_test=1500):
     print(f"{len(train_set)} train / {len(val_set)} validation / {len(test_set)} test parts")
 
     k = len(LABELS)
-    counts = torch.bincount(torch.cat([g.y for g in train_set]), minlength=k)
-    print("training faces per class:", {LABELS[i]: c for i, c in enumerate(counts.tolist()) if c})
+    counts = torch.bincount(torch.cat([g.y for g in train_set]), minlength=k).float()
+    weights = (counts.sum() / (k * counts.clamp(min=1))).to(device)
+    print("training faces per class:", {LABELS[i]: c for i, c in enumerate(counts.int().tolist()) if c})
 
     loaders = [DataLoader(s, batch_size=32, shuffle=(s is train_set)) for s in (train_set, val_set, test_set)]
     n_in, n_edge = train_set[0].x.shape[1], train_set[0].edge_attr.shape[1]
 
     print("\ntraining the baseline (each face alone)")
-    mlp, _ = train(FaceMLP(n_in, k, HIDDEN), loaders[0], loaders[1], epochs, device, "baseline", k, print_every=5)
+    mlp, _ = train(FaceMLP(n_in, k, HIDDEN), loaders[0], loaders[1], epochs, device, "baseline", k, weights, print_every=5)
     print("\ntraining the GNN")
-    gnn, _ = train(FaceGNN(n_in, n_edge, k, HIDDEN, LAYERS), loaders[0], loaders[1], epochs, device, "gnn", k, print_every=5)
+    gnn, _ = train(FaceGNN(n_in, n_edge, k, HIDDEN, LAYERS), loaders[0], loaders[1], epochs, device, "gnn", k, weights, print_every=5)
 
     report("Baseline (no neighbours)", evaluate(mlp, loaders[2], device, k), LABELS)
     report("GNN (uses neighbours and links)", evaluate(gnn, loaders[2], device, k), LABELS)

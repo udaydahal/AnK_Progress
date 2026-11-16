@@ -132,17 +132,29 @@ def edge_convexity(edge, face1, face2):
     return ("convex" if _dot(_cross(n1, n2), _vec(t)) > 0 else "concave"), angle
 
 
+def face_map(shape):
+    """The faces of `shape`, numbered by OpenCascade (starting at 1)."""
+    faces = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_FACE, faces)
+    return faces
+
+
+def get_face_list(shape):
+    """The faces as a list: item i is node i of the graph (and face i+1 in the 2D views)."""
+    faces = face_map(shape)
+    return [TopoDS.Face_s(faces.FindKey(i)) for i in range(1, faces.Extent() + 1)]
+
+
 def step_to_graph(path, names=False):
     """Build the face adjacency graph (a networkx.Graph) of the part in `path`.
     With names=True every node also gets 'name', the face name stored in the STEP file."""
     reader, shape = read_step(path, with_reader=True)
 
-    faces = TopTools_IndexedMapOfShape()
-    TopExp.MapShapes_s(shape, TopAbs_FACE, faces)
+    faces = face_map(shape)
     edge_faces = TopTools_IndexedDataMapOfShapeListOfShape()
     TopExp.MapShapesAndAncestors_s(shape, TopAbs_EDGE, TopAbs_FACE, edge_faces)
 
-    face_list = [TopoDS.Face_s(faces.FindKey(i)) for i in range(1, faces.Extent() + 1)]
+    face_list = get_face_list(shape)
     G = nx.Graph()
     for i, face in enumerate(face_list):
         G.add_node(i, **face_info(face), **({"name": step_face_name(reader, face)} if names else {}))

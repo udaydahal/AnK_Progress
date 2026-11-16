@@ -20,6 +20,11 @@ brep_gnn/
   mfcad/              MFCAD++ public dataset (25 machining feature classes)
     train_mfcad.py      converts STEP files to graphs, trains GNN + baseline on MFCAD++
     visualize_mfcad.ipynb notebook: baseline vs GNN comparison, confusion matrix, per-class bars, part viewer
+
+  views2d/            2D views of the same parts, joined to the graph face by face
+    render_views.py     STEP -> 7 views: shaded image, line drawing, face-id map (which face each pixel shows)
+    vlm_features.py     frozen SigLIP2 image encoder -> one visual vector per face, cached in views2d/data/
+    train_fused.py      MFCAD++: 3D-only GNN vs 2D-only vs fused (GNN + visual vectors)
 ```
 
 ## Words
@@ -67,4 +72,32 @@ Then open `mfcad/visualize_mfcad.ipynb`:
 
 The GNN is a GATv2 (4 layers, 4 attention heads, 128 hidden, edge features).
 The baseline is an MLP that sees each face alone without any neighbour information.
+Training uses inverse-frequency class weights (Stock has ~50x more faces than Round).
+
+## 2D views + fusion (run from `brep_gnn/`)
+Each part is rendered from 7 directions (front, back, top, bottom, right, left, iso). Next to every
+picture we keep a **face-id map**: the same size, each pixel holds the number of the face seen there
+(0 = background, k = graph node k-1). Faces are numbered by the same function as the graph, so the
+link between pixels and graph nodes is exact; nothing is learned or guessed.
+```
+.venv\Scripts\python.exe views2d\render_views.py [file.step]   # picture sheet -> views2d/data/<name>_views.png
+.venv\Scripts\python.exe views2d\render_views.py --check 20    # self-test + 20 MFCAD++ parts
+.venv\Scripts\python.exe views2d\vlm_features.py               # visual vector per face (~20 min, once)
+.venv\Scripts\python.exe views2d\train_fused.py                # 3 models, results table
+```
+`vlm_features.py` runs the frozen SigLIP2 image encoder (`google/siglip2-base-patch16-384`, downloaded on
+first run) on the shaded views and averages its 24 x 24 patch vectors over each face's pixels: 768 numbers
++ a "seen" flag per face. About 30% of MFCAD++ faces sit inside pockets/slots and are seen by no view;
+they get zeros.
+
+First results (6000 / 1000 / 1500 parts, 30 epochs, one run):
+
+| Model | Test accuracy | Mean IoU |
+|---|---|---|
+| 3D only (GNN) | 97.37% | 92.07% |
+| 2D only (each face alone) | 62.98% | 47.89% |
+| Fused 2D + 3D (GNN) | 95.21% | 86.08% |
+
+The visual vectors carry real information (63% vs 49% for the per-face baseline on 3D numbers), but
+gluing 768 numbers onto 15 makes the fused GNN overfit; it is not tuned yet.
 

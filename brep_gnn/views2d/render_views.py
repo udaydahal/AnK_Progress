@@ -1,6 +1,6 @@
 """Render a STEP part into 2D views, and record which BRep face every pixel shows.
 
-For each of 7 views (front, back, top, bottom, right, left, iso) we make
+For each of 14 views (front, back, top, bottom, right, left + 8 corner views) we make
   shaded   a grey picture of the part                         (H, W, 3) uint8
   drawing  an engineering-style line drawing, hidden edges dashed (H, W)  uint8
   face_id  for every pixel, which face is visible there       (H, W)    uint16
@@ -52,8 +52,16 @@ VIEWS = {
     "bottom": ((0, 0, -1), (0, -1, 0)),
     "right": ((1, 0, 0), (0, 0, 1)),
     "left": ((-1, 0, 0), (0, 0, 1)),
-    "iso": ((1, -1, 1), (0, 0, 1)),
 }
+# 8 corner (isometric) views: they look into pockets, slots and holes at an angle, so faces that the
+# 6 straight views only see edge-on (pocket walls, hole walls) become visible. "front-right-top" is
+# the usual iso view.
+for sz in (1, -1):
+    for sy in (-1, 1):
+        for sx in (1, -1):
+            name = f"{'front' if sy < 0 else 'back'}-{'right' if sx > 0 else 'left'}-{'top' if sz > 0 else 'bottom'}"
+            VIEWS[name] = ((sx, sy, sz), (0, 0, 1))
+ISO = "front-right-top"
 
 
 def camera(name):
@@ -231,22 +239,24 @@ def false_colour(face_id):
     return palette[face_id]
 
 
-def save_sheet(result, path):
-    """One picture: shaded / face-id (with face numbers) / drawing for every view."""
+def save_sheet(result, path, per_row=7):
+    """One picture: shaded / face-id (with face numbers) / drawing for every view, 7 views per block."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    n = len(VIEWS)
-    fig, axes = plt.subplots(3, n, figsize=(2.6 * n, 8))
+    blocks = -(-len(VIEWS) // per_row)
+    fig, axes = plt.subplots(3 * blocks, per_row, figsize=(2.6 * per_row, 8 * blocks))
     for j, name in enumerate(VIEWS):
-        axes[0, j].imshow(result["shaded"][j])
-        axes[1, j].imshow(false_colour(result["face_id"][j]))
-        axes[2, j].imshow(result["drawing"][j], cmap="gray", vmin=0, vmax=255)
-        axes[0, j].set_title(name)
+        b, c = divmod(j, per_row)
+        top, mid, low = axes[3 * b, c], axes[3 * b + 1, c], axes[3 * b + 2, c]
+        top.imshow(result["shaded"][j])
+        mid.imshow(false_colour(result["face_id"][j]))
+        low.imshow(result["drawing"][j], cmap="gray", vmin=0, vmax=255)
+        top.set_title(name, fontsize=9)
         for k in visible_faces(result["face_id"][j]):
             ys, xs = np.nonzero(result["face_id"][j] == k)
             if len(xs) > 40:
-                axes[1, j].text(xs.mean(), ys.mean(), f"F{k - 1}", fontsize=6, ha="center", va="center")
+                mid.text(xs.mean(), ys.mean(), f"F{k - 1}", fontsize=6, ha="center", va="center")
     for ax in axes.ravel():
         ax.axis("off")
     fig.tight_layout()

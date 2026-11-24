@@ -96,7 +96,7 @@ def load_split(split, count):
     print(f"building {len(files)} {split} graphs from STEP files ...")
     start = time.time()
     paths = [os.path.join(folder, f) for f in files]
-    with Pool(max(1, (os.cpu_count() or 2) - 4)) as pool:
+    with Pool(max(1, (os.cpu_count() or 2) - 1)) as pool:
         graphs = []
         for i, g in enumerate(pool.imap(step_to_data, paths, chunksize=20), 1):
             graphs.append(g)

@@ -19,7 +19,10 @@ from torch_geometric.data import Data
 
 from brep_to_graph import step_to_graph
 
-matplotlib.use("TkAgg")
+if os.name == "nt" or os.environ.get("DISPLAY"):
+    matplotlib.use("TkAgg")      # pop-up window on Windows / desktops
+else:
+    matplotlib.use("Agg")        # no screen (Colab, servers): just save the PNG
 import matplotlib.pyplot as plt
 from gnn_common import FaceGNN
 from train_mfcad import LABELS, TYPES, CONVEXITY, HIDDEN, LAYERS, node_features, edge_features

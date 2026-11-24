@@ -81,7 +81,7 @@ def build_split(split, count):
     paths = [os.path.join(folder, f) for f in files]
     print(f"encoding {len(paths)} {split} parts, {len(VIEWS)} views each ...")
     start, feats, failed = time.time(), [], 0
-    with Pool(max(1, (os.cpu_count() or 2) - 4)) as pool:
+    with Pool(max(1, (os.cpu_count() or 2) - 1)) as pool:
         for i in range(0, len(paths), CHUNK):
             for r in pool.map(render_for_features, paths[i:i + CHUNK]):
                 if r is None:

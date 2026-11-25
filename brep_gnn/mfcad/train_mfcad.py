@@ -29,6 +29,7 @@ from multiprocessing import Pool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # shared code: brep_gnn/
 
+import numpy as np
 import torch
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
@@ -70,8 +71,10 @@ def edge_features(e):
     return [e["length"] / 50, e["angle"] / 180] + one_hot(e["convexity"], CONVEXITY)
 
 
-def step_to_data(path):
-    """One STEP file -> a PyG graph with a label per face (None if the file cannot be used)."""
+def step_to_arrays(path):
+    """One STEP file -> numpy arrays of its graph (None if the file cannot be used).
+    Worker processes return these instead of torch tensors: tensors are passed between processes
+    through shared memory, which is tiny on Colab and runs out ("unable to mmap ... Cannot allocate memory")."""
     try:
         G = step_to_graph(path, names=True)
         nodes = [G.nodes[i] for i in range(G.number_of_nodes())]
@@ -84,11 +87,22 @@ def step_to_data(path):
             attr += [f, f]
         if not src:
             return None
-        return Data(x=torch.tensor([node_features(n) for n in nodes], dtype=torch.float),
-                    y=torch.tensor(y), edge_index=torch.tensor([src, dst]),
-                    edge_attr=torch.tensor(attr, dtype=torch.float))
+        return (np.array([node_features(n) for n in nodes], dtype=np.float32), np.array(y, dtype=np.int64),
+                np.array([src, dst], dtype=np.int64), np.array(attr, dtype=np.float32))
     except Exception:
         return None
+
+
+def arrays_to_data(arrays):
+    x, y, edge_index, edge_attr = arrays
+    return Data(x=torch.from_numpy(x), y=torch.from_numpy(y),
+                edge_index=torch.from_numpy(edge_index), edge_attr=torch.from_numpy(edge_attr))
+
+
+def step_to_data(path):
+    """One STEP file -> a PyG graph with a label per face (None if the file cannot be used)."""
+    arrays = step_to_arrays(path)
+    return None if arrays is None else arrays_to_data(arrays)
 
 
 def split_files(split, count):
@@ -124,12 +138,13 @@ def load_split(split, count):
                 print(f"  {min(s + SHARD, len(files))}/{len(files)} already built")
                 continue
             names = files[s:s + SHARD]
-            graphs = pool.map(step_to_data, [os.path.join(folder, f) for f in names], chunksize=20)
+            results = pool.map(step_to_arrays, [os.path.join(folder, f) for f in names], chunksize=20)
             done = []
-            for g, f in zip(graphs, names):
-                if g is None:
+            for arrays, f in zip(results, names):
+                if arrays is None:
                     skipped += 1
                     continue
+                g = arrays_to_data(arrays)
                 g.name = f
                 done.append(g)
             torch.save(done, shard_file + ".tmp")     # write fully, then rename: no half-written shards

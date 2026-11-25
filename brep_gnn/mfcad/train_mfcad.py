@@ -9,7 +9,17 @@ Step 2: train a GNN and a node-only baseline on the official train split, report
 
 Run:  python train_mfcad.py [epochs] [train_n] [val_n] [test_n]
       defaults: 30 epochs, 6000 / 1000 / 1500 parts; use 0 for "all parts of that split"
+      full benchmark: python train_mfcad.py 30 0 0 0
 Needs data/MFCAD_dataset/MFCAD++_dataset/step/{train,val,test}/*.step (unzipped download).
+
+Optional environment variables (handy on Colab, point them at Google Drive so nothing is lost
+when the session ends):
+  MFCAD_CACHE  folder for the graph caches        (default data/mfcad_cache)
+  MFCAD_OUT    folder for weights and results     (default data)
+Graphs are built in shards of 2000 parts, each saved as soon as it is done, so a stopped run
+continues where it left off when started again.
+Out:  MFCAD_OUT/mfcad_gnn.pt       GNN weights (used by predict_step.py)
+      MFCAD_OUT/mfcad_results.pt   both models' weights, training curves and test confusion matrices
 """
 import os
 import random
@@ -28,7 +38,12 @@ from gnn_common import FaceGNN, FaceMLP, evaluate, one_hot, report, train
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 ROOT = os.path.join(DATA_DIR, "MFCAD_dataset", "MFCAD++_dataset")
-CACHE = os.path.join(DATA_DIR, "mfcad_cache")
+CACHE = os.environ.get("MFCAD_CACHE") or os.path.join(DATA_DIR, "mfcad_cache")
+OUT_DIR = os.environ.get("MFCAD_OUT") or DATA_DIR
+WEIGHTS = os.path.join(OUT_DIR, "mfcad_gnn.pt")
+RESULTS = os.path.join(OUT_DIR, "mfcad_results.pt")
+SHARD = 2000                        # parts per saved piece of the graph cache
+WORKERS = max(2, (os.cpu_count() or 2) - 1)
 SEED = 0
 HIDDEN, LAYERS = 128, 4
 
@@ -86,24 +101,42 @@ def split_files(split, count):
 
 
 def load_split(split, count):
-    """Graphs of `count` random parts of a split (0 = all), built once and cached."""
+    """Graphs of `count` random parts of a split (0 = all), built once and cached.
+    Every graph carries `name`, the STEP file it came from (unusable files are skipped)."""
     folder, files = split_files(split, count)
     cache_file = os.path.join(CACHE, f"{split}_{len(files)}.pt")
     if os.path.exists(cache_file):
-        return torch.load(cache_file, weights_only=False)
+        graphs = torch.load(cache_file, weights_only=False)
+        if graphs and not hasattr(graphs[0], "name") and len(graphs) == len(files):
+            for g, f in zip(graphs, files):           # caches from before names were stored
+                g.name = f
+        return graphs
 
-    os.makedirs(CACHE, exist_ok=True)
-    print(f"building {len(files)} {split} graphs from STEP files ...")
-    start = time.time()
-    paths = [os.path.join(folder, f) for f in files]
-    with Pool(max(1, (os.cpu_count() or 2) - 1)) as pool:
-        graphs = []
-        for i, g in enumerate(pool.imap(step_to_data, paths, chunksize=20), 1):
-            graphs.append(g)
-            if i % 1000 == 0:
-                print(f"  {i}/{len(paths)} ({time.time() - start:.0f}s)")
-    good = [g for g in graphs if g is not None]
-    print(f"  {len(good)} usable, {len(graphs) - len(good)} skipped ({time.time() - start:.0f}s)")
+    shard_dir = os.path.join(CACHE, f"{split}_{len(files)}_parts")
+    os.makedirs(shard_dir, exist_ok=True)
+    print(f"building {len(files)} {split} graphs from STEP files on {WORKERS} processes ...")
+    start, good, skipped = time.time(), [], 0
+    with Pool(WORKERS) as pool:
+        for s in range(0, len(files), SHARD):
+            shard_file = os.path.join(shard_dir, f"shard_{s // SHARD:03d}.pt")
+            if os.path.exists(shard_file):            # done in an earlier run
+                good += torch.load(shard_file, weights_only=False)
+                print(f"  {min(s + SHARD, len(files))}/{len(files)} already built")
+                continue
+            names = files[s:s + SHARD]
+            graphs = pool.map(step_to_data, [os.path.join(folder, f) for f in names], chunksize=20)
+            done = []
+            for g, f in zip(graphs, names):
+                if g is None:
+                    skipped += 1
+                    continue
+                g.name = f
+                done.append(g)
+            torch.save(done, shard_file + ".tmp")     # write fully, then rename: no half-written shards
+            os.replace(shard_file + ".tmp", shard_file)
+            good += done
+            print(f"  {s + len(names)}/{len(files)} ({time.time() - start:.0f}s)")
+    print(f"  {len(good)} usable, {skipped} skipped in this run ({time.time() - start:.0f}s)")
     torch.save(good, cache_file)
     return good
 
@@ -127,15 +160,25 @@ def main(epochs=30, n_train=6000, n_val=1000, n_test=1500):
     loaders = [DataLoader(s, batch_size=32, shuffle=(s is train_set)) for s in (train_set, val_set, test_set)]
     n_in, n_edge = train_set[0].x.shape[1], train_set[0].edge_attr.shape[1]
 
-    print("\ntraining the baseline (each face alone)")
-    mlp, _ = train(FaceMLP(n_in, k, HIDDEN), loaders[0], loaders[1], epochs, device, "baseline", k, weights, print_every=5)
-    print("\ntraining the GNN")
-    gnn, _ = train(FaceGNN(n_in, n_edge, k, HIDDEN, LAYERS), loaders[0], loaders[1], epochs, device, "gnn", k, weights, print_every=5)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    results = {"epochs": epochs, "seed": SEED, "class_weights": weights.cpu(),
+               "parts": {"train": len(train_set), "val": len(val_set), "test": len(test_set)},
+               "state": {}, "history": {}, "cm": {}}
+    models = (("baseline", FaceMLP(n_in, k, HIDDEN), "the baseline (each face alone)"),
+              ("gnn", FaceGNN(n_in, n_edge, k, HIDDEN, LAYERS), "the GNN"))
+    for key, model, title in models:
+        print(f"\ntraining {title}")
+        torch.manual_seed(SEED)
+        model, history = train(model, loaders[0], loaders[1], epochs, device, key, k, weights, print_every=5)
+        results["state"][key] = {n: v.cpu() for n, v in model.state_dict().items()}
+        results["history"][key] = history
+        results["cm"][key] = evaluate(model, loaders[2], device, k).cpu()
+        torch.save(results, RESULTS)                  # saved after each model, in case the session ends
 
-    report("Baseline (no neighbours)", evaluate(mlp, loaders[2], device, k), LABELS)
-    report("GNN (uses neighbours and links)", evaluate(gnn, loaders[2], device, k), LABELS)
-    torch.save(gnn.state_dict(), os.path.join(DATA_DIR, "mfcad_gnn.pt"))
-    print("\nSaved", os.path.join(DATA_DIR, "mfcad_gnn.pt"))
+    report("Baseline (no neighbours)", results["cm"]["baseline"], LABELS)
+    report("GNN (uses neighbours and links)", results["cm"]["gnn"], LABELS)
+    torch.save(results["state"]["gnn"], WEIGHTS)
+    print("\nSaved", WEIGHTS, "and", RESULTS)
 
 
 if __name__ == "__main__":

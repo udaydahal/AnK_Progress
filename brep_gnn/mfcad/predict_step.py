@@ -1,6 +1,6 @@
 """Predict machining features on any STEP file using the trained MFCAD++ GNN.
 
-Loads the saved weights (data/mfcad_gnn.pt), converts the STEP file to a face
+Loads the saved weights (data/mfcad_gnn.pt, or $MFCAD_OUT/mfcad_gnn.pt if MFCAD_OUT is set), converts the STEP file to a face
 adjacency graph, and predicts one of 25 machining-feature classes for every face.
 
 Run:  python predict_step.py                         (uses the default test file)
@@ -25,11 +25,10 @@ else:
     matplotlib.use("Agg")        # no screen (Colab, servers): just save the PNG
 import matplotlib.pyplot as plt
 from gnn_common import FaceGNN
-from train_mfcad import LABELS, TYPES, CONVEXITY, HIDDEN, LAYERS, node_features, edge_features
+from train_mfcad import LABELS, TYPES, CONVEXITY, HIDDEN, LAYERS, WEIGHTS, node_features, edge_features
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DEFAULT_FILE = os.path.join(DATA_DIR, "test_file", "Parça 259.step")
-WEIGHTS = os.path.join(DATA_DIR, "mfcad_gnn.pt")
 
 N_IN = len(TYPES) + 2 + 3 + 3      # 15 node features
 N_EDGE = 2 + len(CONVEXITY)          # 5 edge features
